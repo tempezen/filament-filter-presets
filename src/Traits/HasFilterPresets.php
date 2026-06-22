@@ -2,27 +2,17 @@
 
 namespace Guiu\FilamentFilterPresets\Traits;
 
-use Filament\Actions\Action;
-use Filament\Actions\ActionGroup;
-use Filament\Forms;
-use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Set;
-use Filament\Support\Enums\MaxWidth;
-use Filament\Notifications\Notification;
-use Illuminate\Support\Facades\Auth;
-use Guiu\FilamentFilterPresets\Models\FilterPreset;
-use Guiu\FilamentFilterPresets\Components\ManageFiltersModal;
-use Filament\Support\Enums\ActionSize;
-use Filament\Support\Enums\IconPosition;
-use Livewire\Component;
-use Livewire\Attributes\On;
-use Illuminate\Support\Facades\Ray;
 use Filament\Forms\Form;
-use Illuminate\Support\Facades\Log;
+use Filament\Notifications\Notification;
+use Filament\Support\Enums\ActionSize;
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\ActionGroup;
+use Guiu\FilamentFilterPresets\Models\FilterPreset;
+use Illuminate\Support\Facades\Auth;
 
 trait HasFilterPresets
 {
@@ -33,10 +23,8 @@ trait HasFilterPresets
 
     public function getDefaultTableRecordsPerPageSelectOption(): int
     {
-        // Primer cridem al mètode del pare per mantenir la funcionalitat original
         $result = parent::getDefaultTableRecordsPerPageSelectOption();
 
-        // Després apliquem el filtre predeterminat si existeix
         $this->loadDefaultFilterPreset();
 
         return $result;
@@ -51,21 +39,26 @@ trait HasFilterPresets
                 ->first();
 
             if ($defaultPreset) {
-                Log::info('Applying default filter preset', [
-                    'preset' => $defaultPreset->name,
-                    'filters' => $defaultPreset->filters,
-                    'class' => get_class($this)
-                ]);
-
-                // Apliquem els filtres directament
-                $this->tableFilters = $defaultPreset->filters;
+                $this->tableFilters = [...$this->tableFilters, ...$defaultPreset->filters];
+                $this->filterSetName = $defaultPreset->name . ' (Default)';
+            }
+            if ($filterSetId = session($this->getFilterSetKey())) {
+                $savedFilterSet = FilterPreset::where('user_id', Auth::id())
+                    ->where('resource_class', get_class($this))
+                    ->first();
+                if ($savedFilterSet) {
+                    $this->tableFilters = [...$this->tableFilters, ...$savedFilterSet->filters];
+                    $this->filterSetName = $savedFilterSet->name;
+                }
             }
         } catch (\Exception $e) {
-            Log::error('Error applying default filter preset', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
+            //
         }
+    }
+
+    protected function getFilterSetKey(): string
+    {
+        return get_class($this) . 'filter_set_id';
     }
 
     public static function getFilterPresetHeaderActions(): array
@@ -76,13 +69,9 @@ trait HasFilterPresets
                     ->label(__('filament-filter-presets::labels.save_filters'))
                     ->icon('heroicon-m-bookmark')
                     ->form([
-                        TextInput::make('name')
-                            ->label(__('filament-filter-presets::labels.filter_name'))
-                            ->required(),
-                        Textarea::make('description')
-                            ->label(__('filament-filter-presets::labels.description')),
-                        Toggle::make('is_default')
-                            ->label(__('filament-filter-presets::labels.set_as_default')),
+                        TextInput::make('name')->label(__('filament-filter-presets::labels.filter_name'))->required(),
+                        Textarea::make('description')->label(__('filament-filter-presets::labels.description')),
+                        Toggle::make('is_default')->label(__('filament-filter-presets::labels.set_as_default')),
                     ])
                     ->action(function (array $data, $livewire): void {
                         $filters = $livewire->getTableFiltersForm()->getState();
@@ -90,7 +79,7 @@ trait HasFilterPresets
                         Log::info('Saving filters', [
                             'filters' => $filters,
                             'data' => $data,
-                            'class' => get_class($livewire)
+                            'class' => get_class($livewire),
                         ]);
 
                         $livewire->saveFilterPreset($data);
@@ -111,8 +100,11 @@ trait HasFilterPresets
                                     ->mapWithKeys(function ($preset) {
                                         return [
                                             $preset->id => $preset->is_default
-                                                ? $preset->name . ' (' . __('filament-filter-presets::labels.default') . ')'
-                                                : $preset->name
+                                                ? $preset->name
+                                                . ' ('
+                                                . __('filament-filter-presets::labels.default')
+                                                . ')'
+                                                : $preset->name,
                                         ];
                                     });
                             })
@@ -128,10 +120,11 @@ trait HasFilterPresets
                     ->label(__('filament-filter-presets::labels.manage_filters'))
                     ->icon('heroicon-m-cog-6-tooth')
                     ->modalHeading(__('filament-filter-presets::labels.manage_filters'))
-                    ->modalContent(fn ($livewire) => view('filament-filter-presets::components.manage-filters-modal', [
-                        'presets' => FilterPreset::where('user_id', Auth::id())
-                            ->where('resource_class', get_class($livewire))
-                            ->get(),
+                    ->modalContent(fn($livewire) => view('filament-filter-presets::components.manage-filters-modal', [
+                        'presets' => FilterPreset::where('user_id', Auth::id())->where(
+                            'resource_class',
+                            get_class($livewire),
+                        )->get(),
                         'resourceClass' => get_class($livewire),
                     ])),
             ])
@@ -147,27 +140,9 @@ trait HasFilterPresets
     {
         $rawFilters = $this->getTableFiltersForm()->getState();
 
-        // Processem els filtres per mantenir l'estructura correcta
-        $filters = collect($rawFilters)
-            ->map(function ($filter) {
-                if (is_array($filter)) {
-                    return [
-                        'values' => $filter['values'] ?? []
-                    ];
-                }
-                return ['values' => [$filter]];
-            })
-            ->filter(function ($filter) {
-                return !empty($filter['values']);
-            })
-            ->toArray();
-
-        Log::info('saveFilterPreset method', [
-            'rawFilters' => $rawFilters,
-            'processedFilters' => $filters,
-            'data' => $data,
-            'class' => get_class($this)
-        ]);
+        $filters = collect($rawFilters)->filter(
+            fn($filter) => !empty($filter['values']) || !empty($filter['value']),
+        )->all();
 
         if (empty($filters)) {
             Notification::make()
@@ -201,11 +176,6 @@ trait HasFilterPresets
                 ->success()
                 ->send();
         } catch (\Exception $e) {
-            Log::error('Error saving filter preset', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             Notification::make()
                 ->title(__('filament-filter-presets::messages.error'))
                 ->body(__('filament-filter-presets::messages.save_error', ['error' => $e->getMessage()]))
@@ -222,19 +192,17 @@ trait HasFilterPresets
                 ->where('resource_class', get_class($this))
                 ->firstOrFail();
 
+            session([$this->getFilterSetKey() => $presetId]);
+
             $this->applyFilterPreset($preset);
         } catch (\Exception $e) {
-            Log::error('Error loading filter preset', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             Notification::make()
                 ->title('Error')
                 ->body(__('filament-filter-presets::messages.preset_not_found'))
                 ->danger()
                 ->send();
         }
+        session(['filter_set_id' => $presetId]);
     }
 
     protected function applyFilterPreset(FilterPreset $preset, bool $showNotification = true): void
@@ -243,11 +211,7 @@ trait HasFilterPresets
             $this->resetTableFiltersForm();
             $this->tableFilters = $preset->filters;
             $this->getTableFiltersForm()->fill($preset->filters);
-
-            Log::info('Applying filter preset', [
-                'filters' => $preset->filters,
-                'class' => get_class($this)
-            ]);
+            $this->filterSetName = $preset->name;
 
             if ($showNotification) {
                 Notification::make()
@@ -257,11 +221,6 @@ trait HasFilterPresets
                     ->send();
             }
         } catch (\Exception $e) {
-            Log::error('Error applying filter preset', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             if ($showNotification) {
                 Notification::make()
                     ->title(__('filament-filter-presets::messages.error'))
@@ -289,16 +248,8 @@ trait HasFilterPresets
 
             $preset->update(['is_default' => !$preset->is_default]);
 
-            Notification::make()
-                ->title(__('filament-filter-presets::messages.success'))
-                ->success()
-                ->send();
+            Notification::make()->title(__('filament-filter-presets::messages.success'))->success()->send();
         } catch (\Exception $e) {
-            Log::error('Error toggling default filter', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             Notification::make()
                 ->title(__('filament-filter-presets::messages.error'))
                 ->body(__('filament-filter-presets::messages.save_error', ['error' => $e->getMessage()]))
@@ -321,11 +272,6 @@ trait HasFilterPresets
                 ->success()
                 ->send();
         } catch (\Exception $e) {
-            Log::error('Error deleting filter preset', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             Notification::make()
                 ->title(__('filament-filter-presets::messages.error'))
                 ->body(__('filament-filter-presets::messages.delete_error', ['error' => $e->getMessage()]))
@@ -382,7 +328,7 @@ trait HasFilterPresets
      */
     protected static function formatFilterValue(string $filterName, $value): ?string
     {
-        if ($value === null || $value === '' || (is_array($value) && empty($value))) {
+        if ($value === null || $value === '' || is_array($value) && empty($value)) {
             return null;
         }
 
@@ -392,7 +338,11 @@ trait HasFilterPresets
         }
 
         // Format dates
-        if (str_contains($filterName, 'date') || str_contains($filterName, 'created') || str_contains($filterName, 'updated')) {
+        if (
+            str_contains($filterName, 'date')
+            || str_contains($filterName, 'created')
+            || str_contains($filterName, 'updated')
+        ) {
             try {
                 if ($value instanceof \Carbon\Carbon) {
                     return $value->format('d/m/Y');
@@ -415,5 +365,36 @@ trait HasFilterPresets
     public static function getFilterPresetConfiguration(): array
     {
         return [];
+    }
+
+    public function removeTableFilter(
+        string $filterName,
+        ?string $field = null,
+        bool $isRemovingAllFilters = false,
+    ): void {
+        session()->forget($this->getFilterSetKey());
+        $this->filterSetName = null;
+        parent::removeTableFilter($filterName, $field, $isRemovingAllFilters);
+    }
+
+    public function resetTableFiltersForm(): void
+    {
+        session()->forget($this->getFilterSetKey());
+        $this->filterSetName = null;
+        parent::resetTableFiltersForm();
+    }
+
+    public function removeTableFilters(): void
+    {
+        session()->forget($this->getFilterSetKey());
+        $this->filterSetName = null;
+        parent::removeTableFilters();
+    }
+
+    public function updating($property, $value)
+    {
+        if ($property !== 'mountedTableActionsData.0.preset_id') {
+            $this->filterSetName = null;
+        }
     }
 }

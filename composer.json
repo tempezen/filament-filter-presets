@@ -1,5 +1,5 @@
 {
-    "name": "guiu/filament-filter-presets",
+    "name": "glue-systems/filament-filter-presets",
     "description": "A Filament plugin to save and load filter presets",
     "type": "library",
     "license": "MIT",
@@ -13,8 +13,8 @@
     ],
     "authors": [
         {
-            "name": "Guiu",
-            "email": "gerardguiu@gmail.com"
+            "name": "Glue Systems",
+            "email": "dev@walts.com"
         }
     ],
     "require": {
