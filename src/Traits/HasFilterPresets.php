@@ -33,6 +33,17 @@ trait HasFilterPresets
     protected function loadDefaultFilterPreset(): void
     {
         try {
+            if ($filterSetId = session($this->getFilterSetKey())) {
+                $savedFilterSet = FilterPreset::where('id', $filterSetId)
+                    ->where('resource_class', get_class($this))
+                    ->first();
+                if ($savedFilterSet) {
+                    $this->tableFilters = [...$this->tableFilters, ...$savedFilterSet->filters];
+                    $this->filterSetName = $savedFilterSet->name;
+                }
+                return;
+            }
+
             $defaultPreset = FilterPreset::where('user_id', Auth::id())
                 ->where('resource_class', get_class($this))
                 ->where('is_default', true)
@@ -42,15 +53,6 @@ trait HasFilterPresets
                 $this->tableFilters = [...$this->tableFilters, ...$defaultPreset->filters];
                 $this->filterSetName = $defaultPreset->name . ' (Default)';
             }
-            if ($filterSetId = session($this->getFilterSetKey())) {
-                $savedFilterSet = FilterPreset::where('user_id', Auth::id())
-                    ->where('resource_class', get_class($this))
-                    ->first();
-                if ($savedFilterSet) {
-                    $this->tableFilters = [...$this->tableFilters, ...$savedFilterSet->filters];
-                    $this->filterSetName = $savedFilterSet->name;
-                }
-            }
         } catch (\Exception $e) {
             //
         }
@@ -58,7 +60,7 @@ trait HasFilterPresets
 
     protected function getFilterSetKey(): string
     {
-        return get_class($this) . 'filter_set_id';
+        return get_class($this) . '_filter_set_id';
     }
 
     public static function getFilterPresetHeaderActions(): array
@@ -163,6 +165,8 @@ trait HasFilterPresets
                     ->update(['is_default' => false]);
             }
 
+            $this->filterSetName = $filterPreset->name;
+
             session([$this->getFilterSetKey() => $filterPreset->id]);
 
             Notification::make()
@@ -197,7 +201,8 @@ trait HasFilterPresets
                 ->danger()
                 ->send();
         }
-        session(['filter_set_id' => $presetId]);
+
+        session([$this->getFilterSetKey() => $presetId]);
     }
 
     protected function applyFilterPreset(FilterPreset $preset, bool $showNotification = true): void
@@ -307,50 +312,6 @@ trait HasFilterPresets
         }
 
         return $preset->description;
-    }
-
-    /**
-     * Get display name for a filter
-     */
-    protected static function getFilterDisplayName(string $filterName): string
-    {
-        // Convert snake_case to Title Case
-        return ucfirst(str_replace('_', ' ', $filterName));
-    }
-
-    /**
-     * Format filter value for display
-     */
-    protected static function formatFilterValue(string $filterName, $value): ?string
-    {
-        if ($value === null || $value === '' || is_array($value) && empty($value)) {
-            return null;
-        }
-
-        // Format arrays
-        if (is_array($value)) {
-            return implode(', ', $value);
-        }
-
-        // Format dates
-        if (
-            str_contains($filterName, 'date')
-            || str_contains($filterName, 'created')
-            || str_contains($filterName, 'updated')
-        ) {
-            try {
-                if ($value instanceof \Carbon\Carbon) {
-                    return $value->format('d/m/Y');
-                }
-                if (is_string($value)) {
-                    return \Carbon\Carbon::parse($value)->format('d/m/Y');
-                }
-            } catch (\Exception $e) {
-                // Fall back to original value if date parsing fails
-            }
-        }
-
-        return (string) $value;
     }
 
     /**
