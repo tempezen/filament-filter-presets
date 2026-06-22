@@ -75,7 +75,6 @@ trait HasFilterPresets
                     ])
                     ->action(function (array $data, $livewire): void {
                         $filters = $livewire->getTableFiltersForm()->getState();
-
                         $livewire->saveFilterPreset($data);
                     }),
 
@@ -163,6 +162,8 @@ trait HasFilterPresets
                     ->where('id', '!=', $filterPreset->id)
                     ->update(['is_default' => false]);
             }
+
+            session([$this->getFilterSetKey() => $filterPreset->id]);
 
             Notification::make()
                 ->title(__('filament-filter-presets::messages.success'))
