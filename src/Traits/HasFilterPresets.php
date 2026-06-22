@@ -76,12 +76,6 @@ trait HasFilterPresets
                     ->action(function (array $data, $livewire): void {
                         $filters = $livewire->getTableFiltersForm()->getState();
 
-                        Log::info('Saving filters', [
-                            'filters' => $filters,
-                            'data' => $data,
-                            'class' => get_class($livewire),
-                        ]);
-
                         $livewire->saveFilterPreset($data);
                     }),
 
