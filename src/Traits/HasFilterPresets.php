@@ -21,7 +21,7 @@ trait HasFilterPresets
         return parent::getTableFiltersForm();
     }
 
-    public function getDefaultTableRecordsPerPageSelectOption()
+    public function getDefaultTableRecordsPerPageSelectOption(): string|int
     {
         $result = parent::getDefaultTableRecordsPerPageSelectOption();
 
